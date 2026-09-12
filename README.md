@@ -1,46 +1,67 @@
 # Laboratório Didático de Computação Distribuída em EAD
 
-Este repositório contém os scripts, dados e códigos referentes ao artigo
-"Laboratório Didático de Computação Distribuída em EAD: Estudo de Caso com
-VirtualBox e AWS", submetido à Escola Regional de Alto Desempenho de São Paulo
-(ERAD-SP 2026).
+Este repositório reúne os scripts, dados e códigos do artigo **"Laboratório Didático de Computação Distribuída em EAD: Estudo de Caso com VirtualBox e AWS"**, submetido ao **Congresso da UNIVESP 2026**.
 
-O artigo apresenta dois ambientes para o ensino de computação distribuída em
-cursos a distância: um cluster local com VirtualBox e um cenário em nuvem com
-AWS. Demonstramos o uso de cada ambiente com um benchmark da OSU
-Micro-Benchmarks: o `osu_bcast` para uma operação coletiva no cluster local, e o
-`osu_latency` para medir latência ponto a ponto na nuvem, comparando comunicação
-local e inter-regional.
+O trabalho propõe dois ambientes de baixo custo para ensinar computação distribuída a distância:
 
-## Estrutura do Repositório
+- um **cluster local** com VirtualBox e Vagrant, executado em um único computador;
+- um **cenário em nuvem** com AWS, usando instâncias em regiões diferentes.
 
-1. [Ambiente Local (VirtualBox)](virtualbox/README.md): Scripts de provisionamento
-   (Vagrantfile) para criar um cluster de 4 nós e executar o teste de Broadcast.
-2. [Ambiente em Nuvem (AWS)](aws_nuvem/README.md): Instruções para configurar
-   instâncias EC2 em regiões distintas e executar o teste de latência.
-3. [Códigos Modificados](codigos_modificados/README.md): Versões customizadas dos
-   benchmarks OSU com identificação dos nós.
+Em cada ambiente, a comunicação é demonstrada com o **OSU Micro-Benchmarks**:
 
-## Especificações dos Ambientes
+- `osu_bcast`: operação coletiva de broadcast no cluster local;
+- `osu_latency`: latência ponto a ponto na nuvem, comparando comunicação local e inter-regional.
 
-| Recurso | VirtualBox (Local) | AWS (Nuvem) |
+## Objetivo
+
+Mostrar que é possível praticar conceitos de computação distribuída sem laboratório físico dedicado, com ênfase em dois pontos:
+
+1. **Reprodutibilidade**: o ambiente é descrito em um `Vagrantfile` e recriado por um único comando.
+2. **Economia de tempo**: a montagem manual das quatro máquinas levou de **2 a 3 horas**, enquanto a recriação com a receita pronta levou de **15 a 20 minutos**.
+
+## Estrutura do repositório
+
+| Diretório | Conteúdo |
+|---|---|
+| [`virtualbox/`](virtualbox/README.md) | Receita Vagrant, scripts de coleta e análise, dados e gráficos do cluster local. |
+| [`aws_nuvem/`](aws_nuvem/README.md) | Configuração das instâncias EC2 e teste de latência entre regiões. |
+| [`codigos_modificados/`](codigos_modificados/README.md) | Versões do OSU com identificação dos nós. |
+
+## Especificações dos ambientes
+
+| Recurso | VirtualBox (local) | AWS (nuvem) |
 |---|---|---|
-| Quantidade | 4 máquinas virtuais | 2 máquinas virtuais |
-| Processador | 1 vCPU por máquina | 1 vCPU por máquina |
-| Memória | 1 GB por máquina | 1 GB por máquina |
-| Sistema Operacional | Ubuntu 22.04 Server | Ubuntu 22.04 Server |
+| Máquinas | 4 VMs | 2 instâncias |
+| Processador | 1, 2 ou 4 vCPUs por VM | 1 vCPU por instância |
+| Memória | 1 GB por VM | 1 GB por instância |
+| Sistema operacional | Ubuntu 22.04 | Ubuntu 22.04 |
+| Rede | rede interna do VirtualBox | VPC Peering entre regiões |
 
-### Requisitos para o Laboratório Local (VirtualBox)
+No cluster local, o número total de processos MPI foi fixado em 16 (quatro por VM), variando apenas a quantidade de vCPUs.
 
-| Componente | RAM (GB) | Disco (GB) |
-|---|---|---|
-| Windows 11 (base) | 4,0 | 64,0 |
-| 4 VMs Ubuntu (1 GB cada) | 3,5 – 4,0 | 37,0 |
-| Gerenciamento VBox/Rede | 0,5 | 0,2 – 0,3 |
-| **Total Estimado** | **8,0 – 8,5** | **101,2 – 101,3** |
+## Recursos do laboratório local
 
-O laboratório foi montado em uma máquina com 32 GB de RAM, SSD de 500 GB,
-processador Intel Core i7-1165G7, executando Windows 11.
+O experimento foi executado em um computador com Intel Core i7-1165G7 (quatro núcleos, oito threads), 32 GB de RAM e SSD, com Windows 11.
+
+O consumo do laboratório foi medido comparando o computador sem VMs, com uma VM e com quatro VMs ligadas. O uso do próprio Windows foi tratado como linha de base e não atribuído ao laboratório.
+
+| Situação | RAM adicional | Disco ocupado |
+|---|---:|---:|
+| 1 VM ligada | ~0,89 GB | ~9,55 GB |
+| 4 VMs ligadas | ~3,57 GB | ~38,18 GB |
+
+Cada VM acrescentou cerca de 0,89 GB de RAM e 9,55 GB de disco. O disco inclui Ubuntu, Open MPI, OSU e os scripts. A coleta pode ser reproduzida pelo script `virtualbox/scripts/coletar_recursos.ps1`.
+
+As ferramentas de virtualização ocuparam um espaço fixo adicional: VirtualBox (~0,23 GB), Vagrant (~0,98 GB) e a imagem Ubuntu em cache (~0,61 GB).
+
+## Como reproduzir
+
+Cluster local:
+
+```powershell
+cd virtualbox
+$env:LAB_NODES='4'; $env:VAGRANT_CPUS='1'
+vagrant up --no-parallel
 
 ## Autores
 
