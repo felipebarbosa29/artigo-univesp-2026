@@ -43,8 +43,6 @@ No cluster local, o número total de processos MPI foi fixado em 16 (quatro por 
 
 O experimento foi executado em um computador com Intel Core i7-1165G7 (quatro núcleos, oito threads), 32 GB de RAM e SSD, com Windows 11.
 
-
-
 ## Como reproduzir
 
 Cluster local:
