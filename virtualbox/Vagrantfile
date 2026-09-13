@@ -1,116 +1,171 @@
 # -*- mode: ruby -*-
 # vi: set ft=ruby :
-
-# Vagrantfile para o Laboratório Didático de Computação Distribuída
-# Cria 4 máquinas virtuais Ubuntu 22.04 para experimentos com MPI
+# Laboratório MPI com quatro máquinas virtuais.
+#
+# Este arquivo cria:
+#   mpi-node1 -> 192.168.56.101
+#   mpi-node2 -> 192.168.56.102
+#   mpi-node3 -> 192.168.56.103
+#   mpi-node4 -> 192.168.56.104
+#
+# Comandos executados no PowerShell:
+#   vagrant up --no-parallel
+#   vagrant ssh mpi-node1
+#   vagrant destroy -f
+#
+# Para alterar a quantidade de vCPUs antes de criar as VMs:
+#   $env:VAGRANT_CPUS="1"; vagrant up --no-parallel
+#
+# Para recriar ou reprovisionar com outra quantidade:
+#   $env:VAGRANT_CPUS="2"; vagrant reload --provision --no-parallel
+#
+# Observação: vagrant init não fica dentro deste arquivo. Ele é usado uma única
+# vez no terminal para gerar um Vagrantfile inicial. Como este arquivo já existe,
+# basta executar vagrant up.
 
 Vagrant.configure("2") do |config|
-  # Usar a imagem oficial do Ubuntu 22.04 LTS
   config.vm.box = "ubuntu/jammy64"
+  config.ssh.insert_key = false
 
-  # Definir a quantidade de nós do cluster
-  N = 4
+  nodes = ENV.fetch("LAB_NODES", "4").to_i
+  vcpus = ENV.fetch("VAGRANT_CPUS", "1").to_i
+  memory = ENV.fetch("VAGRANT_MEMORY", "1024").to_i
+  processes_per_node = ENV.fetch("MPI_PROCS_PER_NODE", "4").to_i
+  force_osu_rebuild = ENV.fetch("FORCE_OSU_REBUILD", "0") == "1"
+  cpu_cap = ENV.fetch("VAGRANT_CPU_CAP", "40").to_i
 
-  (1..N).each do |i|
-    config.vm.define "node#{i}" do |node|
-      # Compartilha a pasta raiz do projeto (um nível acima) para acessar codigos_modificados
-      node.vm.synced_folder "../", "/vagrant_data"
+  abort("LAB_NODES deve estar entre 1 e 4") unless (1..4).include?(nodes)
+  abort("VAGRANT_CPUS deve ser 1, 2 ou 4") unless [1, 2, 4].include?(vcpus)
+  abort("VAGRANT_MEMORY deve ser maior ou igual a 512") if memory < 512
+  abort("MPI_PROCS_PER_NODE deve ser maior que zero") if processes_per_node < 1
+  abort("VAGRANT_CPU_CAP deve estar entre 1 e 100") unless (1..100).include?(cpu_cap)
 
-      # Configuração de rede interna (host-only) para comunicação isolada
-      node.vm.network "private_network", ip: "192.168.56.10#{i}"
-      
-      # Nome do host
-      node.vm.hostname = "node#{i}"
+  config.vm.synced_folder ".", "/vagrant_data", type: "virtualbox"
 
-      # Configuração de recursos do VirtualBox
+  # Nomes e endereços utilizados por todos os nós.
+  hosts_block = (1..nodes).map do |i|
+    "192.168.56.#{100 + i} mpi-node#{i}"
+  end.join("\n")
+
+  hostfile_block = (1..nodes).map do |i|
+    "mpi-node#{i} slots=#{processes_per_node}"
+  end.join("\n")
+
+  (1..nodes).each do |i|
+    config.vm.define "mpi-node#{i}" do |node|
+      node.vm.hostname = "mpi-node#{i}"
+      node.vm.network "private_network", ip: "192.168.56.#{100 + i}"
+
       node.vm.provider "virtualbox" do |vb|
-        vb.name = "erad_node#{i}"
-        vb.memory = "1024" # 1 GB de RAM conforme artigo
-        vb.cpus = 1        # 1 vCPU conforme artigo
-        vb.customize ["modifyvm", :id, "--nictype1", "virtio"]
+        vb.name = "mpi-node#{i}"
+        vb.memory = memory
+        vb.cpus = vcpus
+        vb.customize ["modifyvm", :id, "--cpuexecutioncap", cpu_cap]
         vb.customize ["modifyvm", :id, "--nictype2", "virtio"]
       end
 
-      # Script de provisionamento básico
-      node.vm.provision "shell", inline: <<-SHELL
-        echo "Atualizando pacotes e instalando dependências..."
-        apt-get update -qq
-        apt-get install -y -qq openmpi-bin openmpi-common libopenmpi-dev build-essential gcc make wget tar git
+      node.vm.provision "shell", privileged: true, inline: <<-SHELL
+        set -euxo pipefail
+        export DEBIAN_FRONTEND=noninteractive
 
-        # O SEGREDO ESTÁ AQUI: Caminho correto na versão 7.3
-        DEST_PATH="c/mpi/collective/blocking/osu_bcast.c"
-        
-        # Verifica se o OSU já foi compilado para evitar perda de tempo no reload
-        if [ ! -f "/usr/local/osu/libexec/osu-micro-benchmarks/mpi/collective/osu_bcast" ]; then
-            echo "Instalação nova detectada. Baixando OSU Micro-Benchmarks..."
-            rm -rf /tmp/osu-micro-benchmarks-7.3*
-            cd /tmp
-            wget -q --no-check-certificate https://mvapich.cse.ohio-state.edu/download/mvapich/osu-micro-benchmarks-7.3.tar.gz
-            tar -xzf osu-micro-benchmarks-7.3.tar.gz
-            cd osu-micro-benchmarks-7.3
-            
-            # Estratégia de Injeção Local: Procura o arquivo na pasta compartilhada
-            echo "Buscando código modificado na pasta compartilhada..."
-            MOD_FILE=$(find /vagrant_data -name osu_bcast.c | grep "codigos_modificados" | head -n 1)
-            
-            if [ -n "$MOD_FILE" ]; then
-                echo "Sucesso! Arquivo modificado encontrado em: $MOD_FILE"
-                cp "$MOD_FILE" $DEST_PATH
-            else
-                echo "AVISO: Arquivo modificado não encontrado em /vagrant_data. Usando versão do GitHub..."
-                wget -q -O $DEST_PATH https://raw.githubusercontent.com/felipebarbosa29/Artigo-ERAD2026/main/codigos_modificados/osu_bcast.c
-            fi
+        echo "[mpi-node#{i}] Instalando dependencias..."
+        apt-get update
+        apt-get install -y \
+          openmpi-bin openmpi-common libopenmpi-dev \
+          build-essential gcc g++ make wget curl ca-certificates \
+          tar git openssh-client openssh-server
 
-            # Injeta um marcador visual no cabeçalho para confirmar a versão
-            sed -i 's/OSU MPI%s Broadcast Latency Test/OSU MPI%s Broadcast Latency Test (AUDITAVEL)/' $DEST_PATH
+        echo "[mpi-node#{i}] Configurando /etc/hosts..."
+        sed -i '/# MPI-LAB-BEGIN/,/# MPI-LAB-END/d' /etc/hosts
+        printf '%b\n' "# MPI-LAB-BEGIN\n#{hosts_block}\n# MPI-LAB-END" >> /etc/hosts
 
-            echo "Compilando OSU Micro-Benchmarks (isso pode levar alguns minutos)..."
-            ./configure CC=mpicc CXX=mpicxx --prefix=/usr/local/osu --quiet
-            make -j$(nproc) > /dev/null 2>&1
-            make install > /dev/null 2>&1
-        else
-            echo "OSU Micro-Benchmarks já instalado. Pulando etapa de compilação!"
-        fi
-        
-        echo "Verificação Final: "
-        if /usr/local/osu/libexec/osu-micro-benchmarks/mpi/collective/osu_bcast --version | grep -q "AUDITAVEL"; then
-            echo "CONFIRMADO: Versão auditável instalada com sucesso!"
-        else
-            echo "ERRO: O marcador (AUDITAVEL) não foi encontrado no executável compilado."
+        echo "[mpi-node#{i}] Configurando SSH compartilhado..."
+        install -d -m 700 -o vagrant -g vagrant /home/vagrant/.ssh
+
+        if [ "#{i}" -eq "1" ]; then
+          if [ ! -f /home/vagrant/.ssh/id_rsa ]; then
+            sudo -u vagrant ssh-keygen -q -t rsa -b 2048 -N "" \
+              -f /home/vagrant/.ssh/id_rsa
+          fi
+          cp /home/vagrant/.ssh/id_rsa.pub /vagrant_data/master_key.pub
+          chown vagrant:vagrant /vagrant_data/master_key.pub
         fi
 
-        # Otimização de Usabilidade: Adiciona o caminho ao PATH do vagrant
-        if ! grep -q "osu-micro-benchmarks" /home/vagrant/.bashrc; then
-            echo "export PATH=$PATH:/usr/local/osu/libexec/osu-micro-benchmarks/mpi/collective:/usr/local/osu/libexec/osu-micro-benchmarks/mpi/pt2pt" >> /home/vagrant/.bashrc
-            echo "Atalho PATH configurado."
+        timeout 300 bash -c \
+          'until [ -s /vagrant_data/master_key.pub ]; do sleep 2; done'
+
+        touch /home/vagrant/.ssh/authorized_keys
+        if ! grep -qF "$(cat /vagrant_data/master_key.pub)" \
+            /home/vagrant/.ssh/authorized_keys; then
+          cat /vagrant_data/master_key.pub >> /home/vagrant/.ssh/authorized_keys
         fi
 
-        echo "Configurando rede e SSH..."
-        cat <<EOF > /etc/hosts
-127.0.0.1 localhost
-192.168.56.101 node1
-192.168.56.102 node2
-192.168.56.103 node3
-192.168.56.104 node4
-EOF
-        cat > /home/vagrant/hostfile <<-EOF
-192.168.56.101 node1
-192.168.56.102 node2
-192.168.56.103 node3
-192.168.56.104 node4
-EOF
+        {
+          echo 'Host *'
+          echo '  StrictHostKeyChecking no'
+          echo '  UserKnownHostsFile /dev/null'
+          echo '  LogLevel ERROR'
+        } > /home/vagrant/.ssh/config
+
+        chown -R vagrant:vagrant /home/vagrant/.ssh
+        chmod 700 /home/vagrant/.ssh
+        chmod 600 /home/vagrant/.ssh/authorized_keys
+        chmod 600 /home/vagrant/.ssh/config
+
+        echo "[mpi-node#{i}] Criando hostfile..."
+        printf '%s\n' "#{hostfile_block}" > /home/vagrant/hostfile
         chown vagrant:vagrant /home/vagrant/hostfile
 
-        mkdir -p /home/vagrant/.ssh
-        if [ "#{i}" -eq "1" ]; then
-          sudo -u vagrant ssh-keygen -t rsa -b 2048 -N "" -f /home/vagrant/.ssh/id_rsa
-          cp /home/vagrant/.ssh/id_rsa.pub /vagrant/master_key.pub
+        echo "[mpi-node#{i}] Instalando ou validando OSU 7.3..."
+        OSU_VERSION="7.3"
+        OSU_PREFIX="/usr/local/osu"
+        OSU_ROOT="/home/vagrant/osu_benchmark"
+        OSU_SRC="$OSU_ROOT/osu-micro-benchmarks-${OSU_VERSION}"
+        OSU_BINARY="$OSU_SRC/c/mpi/collective/blocking/osu_bcast"
+        OSU_MARKER="/var/lib/mpi-lab/osu-${OSU_VERSION}.installed"
+        mkdir -p /var/lib/mpi-lab "$OSU_ROOT"
+
+        if [ "#{force_osu_rebuild}" = "true" ]; then
+          rm -f "$OSU_MARKER"
         fi
-        while [ ! -f /vagrant/master_key.pub ]; do sleep 1; done
-        cat /vagrant/master_key.pub >> /home/vagrant/.ssh/authorized_keys
-        echo -e "Host *\n\tStrictHostKeyChecking no\n\tUserKnownHostsFile /dev/null\n\tLogLevel ERROR" > /home/vagrant/.ssh/config
-        chown -R vagrant:vagrant /home/vagrant/.ssh
-        chmod 600 /home/vagrant/.ssh/authorized_keys /home/vagrant/.ssh/config
+
+        if [ ! -x "$OSU_BINARY" ] || [ ! -f "$OSU_MARKER" ]; then
+          rm -rf "$OSU_SRC"
+          cd "$OSU_ROOT"
+          OSU_URL="https://mvapich.cse.ohio-state.edu/download/mvapich/osu-micro-benchmarks-${OSU_VERSION}.tar.gz"
+          OSU_TARBALL="osu-micro-benchmarks-${OSU_VERSION}.tar.gz"
+          echo "[mpi-node#{i}] Baixando $OSU_URL"
+          echo "[mpi-node#{i}] A rede pode interceptar o certificado HTTPS; será usada validação relaxada apenas neste download oficial."
+          if ! wget --no-check-certificate --tries=5 --timeout=30 --retry-connrefused "$OSU_URL" -O "$OSU_TARBALL"; then
+            echo "[mpi-node#{i}] wget falhou; tentando curl com -k..."
+            rm -f "$OSU_TARBALL"
+            curl -k -fL --retry 5 --retry-delay 3 --connect-timeout 30 "$OSU_URL" -o "$OSU_TARBALL"
+          fi
+          test -s "$OSU_TARBALL"
+          test "$(stat -c%s "$OSU_TARBALL")" -gt 500000
+          tar -xzf "$OSU_TARBALL"
+          cd "$OSU_SRC"
+
+          DEST_PATH="$OSU_SRC/c/mpi/collective/blocking/osu_bcast.c"
+          MOD_FILE="$(find /vagrant_data -type f -path '*/codigos_modificados/osu_bcast.c' -print -quit || true)"
+          if [ -n "$MOD_FILE" ]; then
+            cp "$MOD_FILE" "$DEST_PATH"
+          fi
+
+          ./configure CC=mpicc CXX=mpicxx --prefix="$OSU_PREFIX"
+          make -j"$(nproc)"
+          make install
+          chown -R vagrant:vagrant "$OSU_ROOT"
+          touch "$OSU_MARKER"
+        fi
+
+        echo 'export PATH="$PATH:/usr/local/osu/libexec/osu-micro-benchmarks/mpi/collective:/usr/local/osu/libexec/osu-micro-benchmarks/mpi/pt2pt"' > /etc/profile.d/mpi-lab.sh
+        chmod 644 /etc/profile.d/mpi-lab.sh
+
+        command -v mpirun
+        mpirun --version | head -n 1
+        test -x "$OSU_BINARY"
+        echo "[mpi-node#{i}] Provisionamento concluido."
       SHELL
     end
   end
