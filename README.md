@@ -1,6 +1,6 @@
-# Laboratório Didático de Computação Distribuída em EAD
+# AMBIENTES DIDÁTICOS PARA O ENSINO DE COMPUTAÇÃO DISTRIBUÍDA
 
-Este repositório reúne os scripts, dados e códigos do artigo **"Laboratório Didático de Computação Distribuída em EAD: Estudo de Caso com VirtualBox e AWS"**, submetido ao **Congresso da UNIVESP 2026**.
+Este repositório reúne os scripts, dados e códigos do artigo **"AMBIENTES DIDÁTICOS PARA O ENSINO DE COMPUTAÇÃO DISTRIBUÍDA"**, submetido ao **Congresso da UNIVESP 2026**.
 
 O trabalho propõe dois ambientes de baixo custo para ensinar computação distribuída a distância:
 
