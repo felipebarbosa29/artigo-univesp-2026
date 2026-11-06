@@ -52,8 +52,3 @@ cd virtualbox
 $env:LAB_NODES='4'; $env:VAGRANT_CPUS='1'
 vagrant up --no-parallel
 ```
-## Autores
-
-Este trabalho foi desenvolvido por Felipe Barbosa da Silva sob orientação do
-Prof. Dr. Mauricio G. Palma, como parte de Iniciação Científica na Universidade
-Virtual do Estado de São Paulo (UNIVESP).
